@@ -1,0 +1,54 @@
+{
+    "name": "n8n-nodes-download-csv-from-microsoft-sql",
+    "version": "0.1.0",
+    "description": "Download CSV from Microsoft SQL Server and use it in n8n workflows.",
+    "license": "MIT",
+    "homepage": "",
+    "keywords": [
+        "n8n-community-node-package"
+    ],
+    "author": {
+        "name": "juniorUsca",
+        "email": "junior.usca@gmail.com"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/juniorUsca/n8n-nodes-download-csv-from-microsoft-sql.git"
+    },
+    "scripts": {
+        "build": "n8n-node build",
+        "build:watch": "tsc --watch",
+        "dev": "n8n-node dev --external-n8n",
+        "lint": "n8n-node lint",
+        "lint:fix": "n8n-node lint --fix",
+        "release": "n8n-node release",
+        "prepublishOnly": "n8n-node prerelease"
+    },
+    "files": [
+        "dist"
+    ],
+    "n8n": {
+        "n8nNodesApiVersion": 1,
+        "strict": false,
+        "credentials": [
+            "dist/credentials/MicrosoftSqlCsvApi.credentials.js"
+        ],
+        "nodes": [
+            "dist/nodes/MicrosoftSqlToCsv/MicrosoftSqlToCsv.node.js"
+        ]
+    },
+    "devDependencies": {
+        "@n8n/node-cli": "*",
+        "@types/mssql": "^12.3.0",
+        "eslint": "9.32.0",
+        "prettier": "3.6.2",
+        "release-it": "^19.0.4",
+        "typescript": "5.9.2"
+    },
+    "peerDependencies": {
+        "n8n-workflow": "*"
+    },
+    "dependencies": {
+        "mssql": "12.3.0"
+    }
+}

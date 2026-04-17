@@ -1,0 +1,18 @@
+{
+	"node": "n8n-nodes-download-csv-from-microsoft-sql",
+	"nodeVersion": "1.0",
+	"codexVersion": "1.0",
+	"categories": ["Data & Storage", "Development"],
+	"resources": {
+		"credentialDocumentation": [
+			{
+				"url": "https://github.com/juniorUsca/n8n-nodes-download-csv-from-microsoft-sql"
+			}
+		],
+		"primaryDocumentation": [
+			{
+				"url": "https://github.com/juniorUsca/n8n-nodes-download-csv-from-microsoft-sql"
+			}
+		]
+	}
+}
