@@ -30,6 +30,10 @@ type MicrosoftSqlCredentialData = ICredentialDataDecryptedObject;
 
 interface SqlColumnMetadata {
 	name: string;
+	scale?: number;
+	type?: {
+		declaration?: string;
+	};
 }
 
 interface SqlConnectionConfig {
@@ -117,7 +121,65 @@ function normalizeFileName(fileName: string): string {
 		: `${sanitizedFileName}.csv`;
 }
 
-function escapeCsvValue(value: unknown, delimiter: string): string {
+function padNumber(value: number, length = 2): string {
+	return value.toString().padStart(length, '0');
+}
+
+function formatSqlDate(value: Date): string {
+	return [
+		value.getUTCFullYear(),
+		padNumber(value.getUTCMonth() + 1),
+		padNumber(value.getUTCDate()),
+	].join('-');
+}
+
+function formatSqlTime(value: Date, scale: number): string {
+	const timeValue = [
+		padNumber(value.getUTCHours()),
+		padNumber(value.getUTCMinutes()),
+		padNumber(value.getUTCSeconds()),
+	].join(':');
+
+	if (scale <= 0) {
+		return timeValue;
+	}
+
+	const nanosecondsDelta = Reflect.get(value, 'nanosecondsDelta');
+	const additionalFraction =
+		typeof nanosecondsDelta === 'number' ? Math.round(nanosecondsDelta * 10000000) : 0;
+	const fractionalSeconds = padNumber(
+		value.getUTCMilliseconds() * 10000 + additionalFraction,
+		7,
+	).slice(0, scale);
+
+	return `${timeValue}.${fractionalSeconds}`;
+}
+
+function formatSqlTemporalValue(value: Date, column: SqlColumnMetadata | undefined): string | undefined {
+	const declaration = column?.type?.declaration?.toLowerCase();
+
+	switch (declaration) {
+		case 'date':
+			return formatSqlDate(value);
+		case 'smalldatetime':
+			return `${formatSqlDate(value)} ${formatSqlTime(value, 0)}`;
+		case 'datetime':
+			return `${formatSqlDate(value)} ${formatSqlTime(value, 3)}`;
+		case 'time':
+			return formatSqlTime(value, column?.scale ?? 7);
+		case 'datetime2':
+		case 'datetimeoffset':
+			return `${formatSqlDate(value)} ${formatSqlTime(value, column?.scale ?? 7)}`;
+		default:
+			return undefined;
+	}
+}
+
+function escapeCsvValue(
+	value: unknown,
+	delimiter: string,
+	column: SqlColumnMetadata | undefined,
+): string {
 	if (value === null || value === undefined) {
 		return '';
 	}
@@ -125,7 +187,7 @@ function escapeCsvValue(value: unknown, delimiter: string): string {
 	let normalizedValue: string;
 
 	if (value instanceof Date) {
-		normalizedValue = value.toISOString();
+		normalizedValue = formatSqlTemporalValue(value, column) ?? value.toISOString();
 	} else if (Buffer.isBuffer(value)) {
 		normalizedValue = value.toString('base64');
 	} else if (typeof value === 'object') {
@@ -147,8 +209,14 @@ function escapeCsvValue(value: unknown, delimiter: string): string {
 	return `${QUOTE_CHARACTER}${normalizedValue.replace(/"/g, '""')}${QUOTE_CHARACTER}`;
 }
 
-function serializeCsvRow(values: unknown[], delimiter: string): string {
-	return values.map((value) => escapeCsvValue(value, delimiter)).join(delimiter);
+function serializeCsvRow(
+	values: unknown[],
+	delimiter: string,
+	columns: SqlColumnMetadata[] = [],
+): string {
+	return values
+		.map((value, index) => escapeCsvValue(value, delimiter, columns[index]))
+		.join(delimiter);
 }
 
 async function writeLine(writeStream: WriteStream, line: string): Promise<void> {
@@ -203,6 +271,7 @@ async function streamQueryToCsvFile(
 	let pendingWrite = Promise.resolve();
 	let rowCount = 0;
 	let columnCount = 0;
+	let currentColumns: SqlColumnMetadata[] = [];
 	let recordsetCount = 0;
 
 	const queueLine = async (line: string, onWritten?: () => void): Promise<void> => {
@@ -253,7 +322,8 @@ async function streamQueryToCsvFile(
 						return;
 					}
 
-					const columnNames = columns.map((column: SqlColumnMetadata) => column.name);
+					currentColumns = columns as SqlColumnMetadata[];
+					const columnNames = currentColumns.map((column) => column.name);
 					columnCount = columnNames.length;
 
 					if (!includeHeaders) {
@@ -266,7 +336,7 @@ async function streamQueryToCsvFile(
 				});
 
 				request.on('row', (row) => {
-					void queueLine(`${serializeCsvRow(row, delimiter)}${LINE_BREAK}`, () => {
+					void queueLine(`${serializeCsvRow(row, delimiter, currentColumns)}${LINE_BREAK}`, () => {
 						rowCount += 1;
 					}).catch((queuedError) => rejectOnce(queuedError));
 				});
