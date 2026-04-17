@@ -1,5 +1,5 @@
 {
-    "name": "n8n-nodes-csv-from-microsoft-sql",
+    "name": "n8n-nodes-stream-csv-from-microsoft-sql",
     "version": "1.0.1",
     "description": "Download CSV from Microsoft SQL Server and use it in n8n workflows.",
     "license": "MIT",
