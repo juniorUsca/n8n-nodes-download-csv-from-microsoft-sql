@@ -1,6 +1,6 @@
 {
     "name": "n8n-nodes-download-csv-from-microsoft-sql",
-    "version": "0.1.0",
+    "version": "1.0.0",
     "description": "Download CSV from Microsoft SQL Server and use it in n8n workflows.",
     "license": "MIT",
     "homepage": "",
