@@ -24,6 +24,8 @@ const DEFAULT_DELIMITER = ',';
 const DEFAULT_FILE_NAME = 'query-results.csv';
 const CSV_MIME_TYPE = 'text/csv';
 const LINE_BREAK = '\n';
+const MAX_PENDING_WRITES = 1024;
+const RESUME_PENDING_WRITES = 256;
 const QUOTE_CHARACTER = '"';
 
 type MicrosoftSqlCredentialData = ICredentialDataDecryptedObject;
@@ -119,6 +121,22 @@ function normalizeFileName(fileName: string): string {
 	return sanitizedFileName.toLowerCase().endsWith('.csv')
 		? sanitizedFileName
 		: `${sanitizedFileName}.csv`;
+}
+
+// function isDatabaseLockedError(errorMessage: string): boolean {
+// 	const normalizedMessage = errorMessage.toLowerCase();
+
+// 	return normalizedMessage.includes('sqlite_busy') || normalizedMessage.includes('database is locked');
+// }
+
+function getBinaryPersistenceErrorMessage(error: Error): string {
+	const errorMessage = error.message ?? 'Unknown error';
+
+	// if (isDatabaseLockedError(errorMessage)) {
+	// 	return 'n8n could not persist the generated CSV binary because SQLite is locked. Keep streaming enabled and reduce concurrent writes from parallel executions.';
+	// }
+
+	return `Failed to persist the generated CSV binary data: ${errorMessage}`;
 }
 
 function padNumber(value: number, length = 2): string {
@@ -269,19 +287,11 @@ async function streamQueryToCsvFile(
 	const writeStream = createWriteStream(targetFilePath, { encoding: 'utf8' });
 
 	let pendingWrite = Promise.resolve();
+	let pendingWriteCount = 0;
 	let rowCount = 0;
 	let columnCount = 0;
 	let currentColumns: SqlColumnMetadata[] = [];
 	let recordsetCount = 0;
-
-	const queueLine = async (line: string, onWritten?: () => void): Promise<void> => {
-		pendingWrite = pendingWrite.then(async () => {
-			await writeLine(writeStream, line);
-			onWritten?.();
-		});
-
-		return pendingWrite;
-	};
 
 	try {
 		await pool.connect();
@@ -289,6 +299,7 @@ async function streamQueryToCsvFile(
 		const request = pool.request();
 		request.stream = true;
 		request.arrayRowMode = true;
+		let isRequestPaused = false;
 
 		const abortHandler = () => {
 			request?.cancel();
@@ -308,6 +319,44 @@ async function streamQueryToCsvFile(
 					isSettled = true;
 					request?.cancel();
 					reject(error);
+				};
+
+				const pauseRequest = (): void => {
+					if (!isRequestPaused) {
+						request.pause();
+						isRequestPaused = true;
+					}
+				};
+
+				const resumeRequest = (): void => {
+					if (isRequestPaused) {
+						request.resume();
+						isRequestPaused = false;
+					}
+				};
+
+				const queueLine = async (line: string, onWritten?: () => void): Promise<void> => {
+					pendingWriteCount += 1;
+
+					if (pendingWriteCount >= MAX_PENDING_WRITES) {
+						pauseRequest();
+					}
+
+					pendingWrite = pendingWrite
+						.then(async () => {
+							await writeLine(writeStream, line);
+							onWritten?.();
+						})
+						.finally(() => {
+							pendingWriteCount = Math.max(0, pendingWriteCount - 1);
+
+							if (isRequestPaused && pendingWriteCount <= RESUME_PENDING_WRITES) {
+								resumeRequest();
+							}
+						}
+						);
+
+					return pendingWrite;
 				};
 
 				request.on('recordset', (columns) => {
@@ -351,6 +400,7 @@ async function streamQueryToCsvFile(
 							return;
 						}
 
+						resumeRequest();
 						isSettled = true;
 						resolve();
 					}).catch((queuedError) => rejectOnce(queuedError));
@@ -440,6 +490,13 @@ export class MicrosoftSqlToCsv implements INodeType {
 				default: DEFAULT_BINARY_PROPERTY,
 				description: 'Name of the binary property that will contain the generated CSV file',
 			},
+			{
+				displayName: 'Include Input JSON',
+				name: 'includeInputJson',
+				type: 'boolean',
+				default: true,
+				description: 'Whether to include incoming JSON fields in the output item',
+			},
 		],
 	};
 
@@ -455,6 +512,7 @@ export class MicrosoftSqlToCsv implements INodeType {
 				const includeHeaders = this.getNodeParameter('includeHeaders', itemIndex) as boolean;
 				const delimiter = this.getNodeParameter('delimiter', itemIndex) as string;
 				const requestedFileName = this.getNodeParameter('fileName', itemIndex) as string;
+				const includeInputJson = this.getNodeParameter('includeInputJson', itemIndex) as boolean;
 				const binaryPropertyName = (
 					this.getNodeParameter('binaryPropertyName', itemIndex) as string
 				).trim();
@@ -494,15 +552,19 @@ export class MicrosoftSqlToCsv implements INodeType {
 					tempFilePath,
 				);
 
-				const binaryData = await this.nodeHelpers.copyBinaryFile(
-					csvFile.tempFilePath,
-					fileName,
-					CSV_MIME_TYPE,
-				);
+				const binaryData = await this.nodeHelpers
+					.copyBinaryFile(csvFile.tempFilePath, fileName, CSV_MIME_TYPE)
+					.catch((binaryPersistenceError: Error) => {
+						throw new NodeOperationError(
+							this.getNode(),
+							getBinaryPersistenceErrorMessage(binaryPersistenceError),
+							{ itemIndex },
+						);
+					});
 
 				returnData.push({
 					json: {
-						...items[itemIndex].json,
+						...(includeInputJson ? items[itemIndex].json : {}),
 						microsoftSqlToCsv: {
 							columnCount: csvFile.columnCount,
 							fileName,

@@ -1,46 +1,89 @@
-# n8n-nodes-download-csv-from-microsoft-sql
+# n8n-nodes-stream-csv-from-microsoft-sql
 
-This is an n8n community node. It lets you use _app/service name_ in your n8n workflows.
+n8n community node to execute a Microsoft SQL Server query and return the result
+as a CSV binary file.
 
-_App/service name_ is _one or two sentences describing the service this node integrates with_.
-
-[n8n](https://n8n.io/) is a [fair-code licensed](https://docs.n8n.io/sustainable-use-license/) workflow automation platform.
-
-[Installation](#installation)
-[Operations](#operations)
-[Credentials](#credentials)
-[Compatibility](#compatibility)
-[Usage](#usage)
-[Resources](#resources)
-[Version history](#version-history)
+The node is optimized for streaming large result sets (including millions of
+rows) without loading the full query result into memory.
 
 ## Installation
 
-Follow the [installation guide](https://docs.n8n.io/integrations/community-nodes/installation/) in the n8n community nodes documentation.
+In n8n, install the community package:
+
+```bash
+n8n-nodes-stream-csv-from-microsoft-sql
+```
+
+Or follow the official guide:
+https://docs.n8n.io/integrations/community-nodes/installation/
 
 ## Operations
 
-_List the operations supported by your node._
+### Microsoft SQL to CSV
+- Executes a SQL query against SQL Server.
+- Streams rows to a temporary CSV file.
+- Returns the CSV as binary output.
+- Adds execution metadata in JSON:
+  - `microsoftSqlToCsv.rowCount`
+  - `microsoftSqlToCsv.columnCount`
+  - `microsoftSqlToCsv.fileName`
 
 ## Credentials
 
-_If users need to authenticate with the app/service, provide details here. You should include prerequisites (such as signing up with the service), available authentication methods, and how to set them up._
+Credential type: `Microsoft SQL` (`microsoftSqlCsvApi`)
 
-## Compatibility
+Required:
+- `Server`
+- `Database`
+- `Username`
+- `Password`
 
-_State the minimum n8n version, as well as which versions you test against. You can also include any known version incompatibility issues._
+Optional:
+- `Port` (default `1433`)
+- `Instance Name`
+- `Encrypt`
+- `Trust Server Certificate`
+- `Connection Timeout (ms)`
+- `Request Timeout (ms)`
 
-## Usage
+## Node parameters
 
-_This is an optional section. Use it to help users with any difficult or confusing aspects of the node._
+- `Query` (required): SQL statement to execute.
+- `Include Headers`: include column names as CSV header row.
+- `Delimiter`: CSV delimiter (default `,`).
+- `File Name`: output CSV file name.
+- `Binary Property`: output binary field name (default `data`).
+- `Include Input JSON`: preserve incoming JSON fields in output.
 
-_By the time users are looking for community nodes, they probably already know n8n basics. But if you expect new users, you can link to the [Try it out](https://docs.n8n.io/try-it-out/) documentation to help them get started._
+## Usage notes
+
+- Prefer `SELECT` statements for export workflows.
+- For very large exports, keep only required upstream fields and disable
+  `Include Input JSON` when you don't need pass-through data.
+- If your query returns multiple recordsets, the node fails intentionally
+  because CSV export supports a single result set per execution item.
+
+## Troubleshooting
+
+### `SQLITE_BUSY` / `database is locked` in n8n
+
+This node does not write directly to SQLite. The lock usually happens when n8n
+persists execution and binary data under concurrent load.
+
+Recommendations:
+- Reduce concurrent executions writing large binaries at the same time.
+- Configure workflow execution-data retention according to your auditing needs.
+- Keep n8n and this node on current versions to benefit from persistence fixes.
+
+## Development
+
+```bash
+npm run build
+npm run lint
+npm run dev
+```
 
 ## Resources
 
-* [n8n community nodes documentation](https://docs.n8n.io/integrations/#community-nodes)
-* _Link to app/service documentation._
-
-## Version history
-
-_This is another optional section. If your node has multiple versions, include a short description of available versions and what changed, as well as any compatibility impact._
+- n8n community nodes docs: https://docs.n8n.io/integrations/#community-nodes
+- SQL Server docs: https://learn.microsoft.com/sql/sql-server/
