@@ -1,6 +1,6 @@
 {
     "name": "n8n-nodes-stream-csv-from-microsoft-sql",
-    "version": "1.0.2",
+    "version": "1.1.0",
     "description": "Download CSV from Microsoft SQL Server and use it in n8n workflows.",
     "license": "MIT",
     "homepage": "",
@@ -49,6 +49,6 @@
         "n8n-workflow": "*"
     },
     "dependencies": {
-        "mssql": "12.3.0"
+        "mssql": "12.5.2"
     }
 }
